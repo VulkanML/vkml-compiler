@@ -1,0 +1,11 @@
+add_mlir_tool(vkml-opt opt/vkml-opt.cpp)
+llvm_update_compile_flags(vkml-opt)
+target_include_directories(vkml-opt PRIVATE ${MLIR_LLVM_HEADERS})
+set(OPT_LIBS MLIRDebug MLIROptLib)
+target_link_libraries(vkml-opt PRIVATE ${OPT_LIBS})
+
+add_mlir_tool(vkml-translate translate/vkml-translate.cpp)
+llvm_update_compile_flags(vkml-translate)
+target_include_directories(vkml-translate PRIVATE ${MLIR_LLVM_HEADERS})
+set(TRANS_LIBS MLIRDebug MLIRTranslation)
+target_link_libraries(vkml-translate PRIVATE ${TRANS_LIBS})
