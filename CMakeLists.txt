@@ -1,4 +1,4 @@
-project("vmkl-compiler" LANGUAGES CXX)
+project("vkml-compiler")
 cmake_minimum_required(VERSION 3.16)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -42,15 +42,44 @@ list(APPEND CMAKE_PREFIX_PATH ${MLIR_CMAKE_DIR})
 find_package(MLIR REQUIRED CONFIG)
 list(APPEND CMAKE_MODULE_PATH ${MLIR_CMAKE_DIR})
 list(APPEND CMAKE_MODULE_PATH ${LLVM_CMAKE_DIR})
-
 include(TableGen)
 include(AddMLIR)
 include(HandleLLVMOptions)
-set(MLIR_LLVM_HEADERS ${MLIR_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS})
 
+<<<<<<< HEAD
 add_subdirectory(tablegen)
+=======
+include_directories(${MLIR_INCLUDE_DIRS})
+include_directories(${LLVM_INCLUDE_DIRS})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/inc)
+
+>>>>>>> 7acffda (fifth commit)
 add_subdirectory(inc)
 add_subdirectory(lib)
+
+file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/inc/*.h")
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${HEADERS})
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/lib/*.cpp")
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
+
+file(GLOB_RECURSE GEN_HEADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/*.h.inc")
+source_group(TREE ${CMAKE_CURRENT_BINARY_DIR} FILES ${GEN_HEADERS})
+file(GLOB_RECURSE GEN_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/*.cpp.inc")
+source_group(TREE ${CMAKE_CURRENT_BINARY_DIR} FILES ${GEN_SOURCES})
+
+add_library(vkml-compiler STATIC 
+     ${HEADERS} ${GEN_HEADERS} ${SOURCES} ${GEN_SOURCES}
+)
+
+target_link_libraries(vkml-compiler INTERFACE
+	vkrt_header MLIRvkrtDialect
+	comp_header MLIRcompDialect 
+	vkml_header MLIRvkmlDialect
+	mlir-headers
+)
+
+target_
+
 
 if(TOOLS)
 	add_subdirectory(tools)
