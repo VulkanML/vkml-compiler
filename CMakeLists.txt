@@ -46,15 +46,12 @@ include(TableGen)
 include(AddMLIR)
 include(HandleLLVMOptions)
 
-<<<<<<< HEAD
-add_subdirectory(tablegen)
-=======
 include_directories(${MLIR_INCLUDE_DIRS})
 include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/inc)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
->>>>>>> 7acffda (fifth commit)
-add_subdirectory(inc)
+add_subdirectory(tablegen)
 add_subdirectory(lib)
 
 file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/inc/*.h")
@@ -63,22 +60,27 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/lib/*.c
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
 
 file(GLOB_RECURSE GEN_HEADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/*.h.inc")
-source_group(TREE ${CMAKE_CURRENT_BINARY_DIR} FILES ${GEN_HEADERS})
+source_group("generated" FILES ${GEN_HEADERS})
 file(GLOB_RECURSE GEN_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/*.cpp.inc")
-source_group(TREE ${CMAKE_CURRENT_BINARY_DIR} FILES ${GEN_SOURCES})
+source_group("generated" FILES ${GEN_SOURCES})
 
 add_library(vkml-compiler STATIC 
-     ${HEADERS} ${GEN_HEADERS} ${SOURCES} ${GEN_SOURCES}
+     ${HEADERS} ${GEN_HEADERS} ${SOURCES} ${GEN_SOURCES} )
+
+target_include_directories(vkml-compiler 
+	PRIVATE
+		${CMAKE_CURRENT_BINARY_DIR}/tablegen
 )
 
-target_link_libraries(vkml-compiler INTERFACE
-	vkrt_header MLIRvkrtDialect
-	comp_header MLIRcompDialect 
-	vkml_header MLIRvkmlDialect
-	mlir-headers
-)
+target_include_directories(vkml-compiler PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inc)
 
-target_
+set_property(GLOBAL PROPERTY VKML_COMPILER_HEADERS ${MLIR_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS})
+
+target_link_libraries(vkml-compiler PRIVATE
+	MLIRvkrtDialect
+	MLIRcompDialect 
+	MLIRvkmlDialect	
+)
 
 
 if(TOOLS)
