@@ -1,2 +1,2 @@
 
-add_mlir_dialect_library(MLIRvkrtDialect vkrt.cpp DEPENDS MLIRvkrtIncGen)
+add_mlir_dialect_library(MLIRvkrtDialect vkrt.cpp DEPENDS vkml_header)

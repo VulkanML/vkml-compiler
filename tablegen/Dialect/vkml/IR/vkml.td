@@ -15,7 +15,7 @@ def vkmlDialect : Dialect {
     let summary = "VKML dialect for vkml frontend operations";
     let useDefaultTypePrinterParser = true;
     let dependentDialects = [
-        "tensor::TensorDialect", "affine::AffineDialect", "arith::ArithDialect"		
+        "tensor::TensorDialect", "affine::AffineDialect", "arith::ArithDialect" , "spirv::SpirvDialect"
     ];
 }
 
