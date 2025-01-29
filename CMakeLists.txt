@@ -46,8 +46,8 @@ include(TableGen)
 include(AddMLIR)
 include(HandleLLVMOptions)
 
-include_directories(${MLIR_INCLUDE_DIRS} SYSTEM)
-include_directories(${LLVM_INCLUDE_DIRS} SYSTEM)
+include_directories(${MLIR_INCLUDE_DIRS})
+include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/inc)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
