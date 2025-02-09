@@ -78,7 +78,6 @@ set_property(GLOBAL PROPERTY VKML_COMPILER_HEADERS ${MLIR_INCLUDE_DIRS} ${LLVM_I
 
 target_link_libraries(vkml-compiler PRIVATE
 	MLIRvkrtDialect
-	MLIRcompDialect 
 	MLIRvkmlDialect	
 )
 

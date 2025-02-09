@@ -1,2 +1,0 @@
-add_mlir_dialect(vkrt vkrt)
-add_custom_target(vkrt_header DEPENDS MLIRvkrtIncGen)

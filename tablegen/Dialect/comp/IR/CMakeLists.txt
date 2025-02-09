@@ -1,2 +1,0 @@
-add_mlir_dialect(comp comp)
-add_custom_target(comp_header DEPENDS MLIRcompIncGen)

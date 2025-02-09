@@ -1,2 +1,0 @@
-
-add_mlir_dialect_library(MLIRcompDialect comp.cpp DEPENDS MLIRcompIncGen)
