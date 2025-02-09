@@ -6,75 +6,99 @@
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Dialect.h>
 #include <mlir/IR/OperationSupport.h>
-
 #include <mlir/IR/BuiltinDialect.h>
+
+#include <mlir/Pass/PassManager.h>
+
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
+
+#include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
 #include <mlir/Dialect/GPU/Transforms/Passes.h>
-
 
 #include <mlir/Dialect/SPIRV/IR/SPIRVDialect.h>
 #include <mlir/Dialect/SPIRV/Transforms/Passes.h>
 #include <mlir/Dialect/SPIRV/IR/TargetAndABI.h>
 #include <mlir/Dialect/SPIRV/IR/SPIRVOps.h>
-#include <mlir/Dialect/SPIRV/IR/SPIRVEnums.h>
-#include <mlir/Dialect/SPIRV/IR/SPIRVAttributes.h>
+#include "mlir/Target/SPIRV/Serialization.h"
+#include "mlir/Target/SPIRV/Deserialization.h"
+#include "mlir/Target/SPIRV/SPIRVBinaryUtils.h"
 #include <mlir/Target/SPIRV/Target.h>
-// #include "Dialect/vkml/IR/vkmlDialect.h.inc"
+
+#include <mlir/Conversion/GPUToSPIRV/GPUToSPIRVPass.h>
+
+#include "Dialect/vkml/vkml.h.inc"
+#include "Dialect/vkml/vkmlDialect.h.inc"
+#include "Dialect/vkml/vkmlTypes.h.inc"
 
 namespace {
-	using namespace mlir;
-
-	static spirv::TargetEnvAttr registerTargetEnv(MLIRContext* ctx, uint32_t device_id, uint32_t vendor_id, uint32_t device_typ_id, const std::vector<uint32_t>& resource_limits,
-		const std::vector<std::string>& capabilities, const std::vector<std::string>& extensions) {
-
-		Builder builder(ctx);
-		auto ver = spirv::VerCapExtAttr::get(
-			spirv::Version::V_1_6,
-			{
-				spirv::Capability::Shader,
-			},
-				{
-				   spirv::Extension::SPV_KHR_storage_buffer_storage_class,
-				   spirv::Extension::SPV_KHR_cooperative_matrix,
-				   spirv::Extension::SPV_KHR_8bit_storage,
-				   spirv::Extension::SPV_KHR_16bit_storage
-				},
-			ctx);
-		int max_compute_shared_memory_size = 1024;
-		int max_compute_workgroup_invocations = 1024;
-		llvm::SmallVector<Attribute> max_compute_workgroup_size;
-		for (auto i : { 1024, 1024, 64 })
-			max_compute_workgroup_size.push_back(builder.getI32IntegerAttr(i));
-		int subgroup_size = 64;
-		int min_subgroup_size = 32;
-		int max_subgroup_size = 128;
 
 
+	static mlir::spirv::TargetEnvAttr registerTargetEnv(
+		mlir::MLIRContext* ctx,
+		uint32_t device_id,
+		uint32_t vendor_id,
+		uint32_t device_type_id,
+		const std::vector<uint32_t>& resource_limits,
+		const std::vector<std::string>& capabilities,
+		const std::vector<std::string>& extensions 
+	) {
+		std::vector<mlir::spirv::Capability> caps;
+		std::vector<mlir::spirv::Extension> exts;
+		caps.push_back(mlir::spirv::Capability::Shader);
 
-		auto cooperative_matrix_properties_khr = ArrayAttr::get(ctx, {});
-		auto cooperative_matrix_properties_nv = ArrayAttr::get(ctx, {});
+		for (auto& cap : capabilities) 
+			caps.emplace_back(mlir::spirv::symbolizeCapability(cap).value());
+		
+		for (auto& ext : extensions) {
+			auto e = mlir::spirv::symbolizeExtension(ext);
+			if(e.has_value())
+				exts.emplace_back(e.value());
+		}
 
+		mlir::Builder builder(ctx);
 
-		auto resource = spirv::ResourceLimitsAttr::get(ctx,
-			max_compute_shared_memory_size,
-			max_compute_workgroup_invocations,
-			builder.getArrayAttr(max_compute_workgroup_size),
-			subgroup_size,
-			min_subgroup_size,
-			max_subgroup_size,
-			cooperative_matrix_properties_khr,
-			cooperative_matrix_properties_nv
-		);
+		auto cooperative_matrix_properties_khr = mlir::ArrayAttr::get(ctx, {});
+		auto cooperative_matrix_properties_nv = mlir::ArrayAttr::get(ctx, {});
 
-		return spirv::TargetEnvAttr::get(
-			ver,
-			resource,
-			spirv::ClientAPI::Vulkan,
-			spirv::Vendor::Unknown,
-			spirv::DeviceType::DiscreteGPU,
+		llvm::SmallVector<mlir::Attribute> maxComputeWorkGroupSize;
+		maxComputeWorkGroupSize.emplace_back(builder.getI32IntegerAttr(resource_limits[2]));
+		maxComputeWorkGroupSize.emplace_back(builder.getI32IntegerAttr(resource_limits[3]));
+		maxComputeWorkGroupSize.emplace_back(builder.getI32IntegerAttr(resource_limits[4]));
+
+		return mlir::spirv::TargetEnvAttr::get(
+			mlir::spirv::VerCapExtAttr::get(mlir::spirv::Version::V_1_6, caps, exts, ctx),
+			mlir::spirv::ResourceLimitsAttr::get(ctx,
+				resource_limits[0],
+				resource_limits[1],
+				builder.getArrayAttr(maxComputeWorkGroupSize),
+				resource_limits[5],
+				resource_limits[6],
+				resource_limits[7],
+				cooperative_matrix_properties_khr,
+				cooperative_matrix_properties_nv
+			),
+			mlir::spirv::ClientAPI::Vulkan,
+			(mlir::spirv::Vendor)vendor_id,
+			(mlir::spirv::DeviceType)device_type_id,
 			device_id
 		);
 	}
+
+	static void defineVKMLDialectPasses(mlir::PassManager* pm) {
+		pm->addPass(mlir::createGpuKernelOutliningPass());
+		//pm->addPass(mlir::memref::createFoldMemRefAliasOpsPass());
+		//pm->addPass(mlir::createConvertGPUToSPIRVPass(/*mapMemorySpace=*/true));
+
+		//mlir::OpPassManager& spirPM = pm->nest<mlir::spirv::ModuleOp>();
+		//spirPM.addPass(mlir::spirv::createSPIRVLowerABIAttributesPass());
+		//spirPM.addPass(mlir::spirv::createSPIRVUpdateVCEPass());
+	}
+
+	
+
 }
 
 

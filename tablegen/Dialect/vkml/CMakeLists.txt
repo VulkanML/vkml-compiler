@@ -1,1 +1,2 @@
-add_subdirectory(IR)
+add_mlir_dialect(vkml vkml)
+add_custom_target(vkml_header DEPENDS MLIRvkmlIncGen)

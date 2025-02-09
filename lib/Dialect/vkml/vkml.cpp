@@ -3,14 +3,11 @@
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Interfaces/FunctionImplementation.h"
-#include "vkmlDialect.h"
 
-// #include "Dialect/vkml/IR/vkmlDialect.cpp.inc"
 #define GET_OP_CLASSES 
 // #include "Dialect/vkml/IR/vkml.cpp.inc"
+// #include "Dialect/vkml/IR/vkmlDialect.cpp.inc"
 
-
-#include "vkmlType.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
