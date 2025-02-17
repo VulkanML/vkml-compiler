@@ -1,7 +1,8 @@
 #ifndef VKML_COMPILER_H
 #define VKML_COMPILER_H
 
-#include "vkmlDialect.h"
+#include "frontend.h"
+#include "backend.h"
 
 #include <llvm/ADT/TypeSwitch.h>
 
@@ -16,15 +17,42 @@
 #include <mlir/Pass/PassOptions.h>
 #include <mlir/Dialect/MemRef/Transforms/Passes.h>
 
+#include <mlir/Dialect/SPIRV/IR/TargetAndABI.h>
+#include <mlir/Target/SPIRV/Target.h>
+#include <mlir/Dialect/SPIRV/IR/SPIRVOps.h>
+#include "mlir/Target/SPIRV/SPIRVBinaryUtils.h"
+
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
+
+//#include "mlir/Dialect/MemRef/Transforms/Passes.h"
+
+#include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/Math/IR/Math.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/Dialect/GPU/IR/GPUDialect.h>
+
+//#include <mlir/Dialect/SPIRV/IR/SPIRVDialect.h>
+//#include <mlir/Dialect/SPIRV/Transforms/Passes.h>
+//#include "mlir/Target/SPIRV/Serialization.h"
+//#include "mlir/Target/SPIRV/Deserialization.h"
+//
+//#include <mlir/Target/SPIRV/Target.h>
+
 
 
 namespace compiler {
 
-class Tensor {
-public:
-	Tensor() {}
-	~Tensor() {}
-};
+	mlir::spirv::TargetEnvAttr registerTargetEnv(
+		mlir::MLIRContext* ctx,
+		uint32_t device_id,
+		uint32_t vendor_id,
+		uint32_t device_type_id,
+		const std::vector<uint32_t>& resource_limits,
+		const std::vector<std::string>& capabilities,
+		const std::vector<std::string>& extensions
+	); 
+
+	mlir::Type toMLIRType(mlir::MLIRContext* ctx, uint32_t type);
 
 class Compiler {
 	mlir::MLIRContext ctx;
@@ -34,8 +62,10 @@ class Compiler {
 
 	mlir::OpBuilder global_builder;
 	std::vector<mlir::ModuleOp> device_modules;
-	std::vector<mlir::Operation*> stack;
+	std::map<std::string, mlir::Operation*> srcs;
 	mlir::PassManager pm;
+
+
 
 public:
 	~Compiler() {}
@@ -46,69 +76,31 @@ public:
 		auto device_module = global_builder.create<mlir::ModuleOp>(global_builder.getUnknownLoc(), "device_" + std::to_string(device_id));
 		device_module->setAttr(mlir::gpu::GPUDialect::getContainerModuleAttrName(), global_builder.getUnitAttr());
 		device_module->setAttr(mlir::spirv::getTargetEnvAttrName(), target_env);
-		device_modules.push_back(device_module);
+		this->device_modules.push_back(device_module);
 	}
 
-	mlir::memref::AllocOp addTensor(std::string name, std::vector<int64_t>& shape, uint32_t type, uint32_t aligninment) {
+	void addTensor(std::string name, const std::vector<int64_t>& shape, uint32_t type, uint32_t aligninment) {
         mlir::OpBuilder builder(main_func_op.getBody());
 		builder.setInsertionPointToStart(entry_block);
-		mlir::MemRefType memrefType{};
+		mlir::MemRefType memrefType{};		
+		
+		mlir::RankedTensorType tensorType = mlir::RankedTensorType::get(shape, toMLIRType(&ctx, type));
+		auto src_op = builder.create<mlir::tensor::EmptyOp>(builder.getUnknownLoc(), tensorType, mlir::ValueRange{});
+		srcs[name] = src_op.getOperation();
+	}
 
-		switch (type) {
-		case 1:
-			memrefType = mlir::MemRefType::get(shape, builder.getIntegerType(32, false));
-			break;
-		case 2:
-			memrefType = mlir::MemRefType::get(shape, builder.getIntegerType(8, true));
-			break;
-		case 3:
-			memrefType = mlir::MemRefType::get(shape, builder.getIntegerType(8, false));	
-			break;
-		case 4:
-			memrefType = mlir::MemRefType::get(shape, builder.getIntegerType(16, true));
-			break;
-		case 5:
-			memrefType = mlir::MemRefType::get(shape, builder.getIntegerType(16, false));
-			break;
-		case 6:
-			memrefType = mlir::MemRefType::get(shape, builder.getIntegerType(32, true));
-			break;
-		case 7:
-			memrefType = mlir::MemRefType::get(shape, builder.getIntegerType(32, false));
-			break;
-		case 8:
-			memrefType = mlir::MemRefType::get(shape, builder.getIntegerType(64, true));
-			break;
-		case 9:
-			memrefType = mlir::MemRefType::get(shape, builder.getIntegerType(64, false));
-			break;
-		case 10:
-			memrefType = mlir::MemRefType::get(shape, builder.getIntegerType(64, true));
-			break;
-		case 11:
-			memrefType = mlir::MemRefType::get(shape, builder.getIntegerType(64, false));
-			break;
-		case 12:
-			memrefType = mlir::MemRefType::get(shape, builder.getF16Type());
-			break;
-		case 13:
-			memrefType = mlir::MemRefType::get(shape, builder.getF32Type());
-			break;
-		case 14:
-			memrefType = mlir::MemRefType::get(shape, builder.getF64Type());
-			break;
-		case 15:
-			memrefType = mlir::MemRefType::get(shape, builder.getF128Type());
-			break;
+	void addOp(size_t operator_type, std::string op_name, std::string input_name) {
+		mlir::OpBuilder builder(main_func_op.getBody());
+		builder.setInsertionPointAfterValue(srcs[input_name]->getResult(0));
+		mlir::Operation* input_op = srcs[input_name];
+		switch (operator_type) {
 		case 0:
-		default:
-			memrefType = mlir::MemRefType::get(shape, builder.getNoneType());
+			auto t = mlir::dyn_cast<mlir::tensor::EmptyOp>(input_op).getType();
+			auto abs_op = builder.create<frontend::abs>(builder.getUnknownLoc(), t, srcs[input_name]->getResult(0));
+			srcs[op_name] = abs_op.getOperation();
 			break;
-
 		};
 
- 		auto memrefOp_alloc = builder.create<mlir::memref::AllocOp>(builder.getUnknownLoc(), memrefType);
-		return memrefOp_alloc;
 	}
 	
 	void dump() {
@@ -117,7 +109,7 @@ public:
 
 	Compiler() : ctx(), global_builder(&ctx), pm(&ctx)
 	{
-		ctx.loadDialect<mlir::gpu::GPUDialect, mlir::spirv::SPIRVDialect, mlir::func::FuncDialect>();
+		ctx.loadDialect<mlir::tensor::TensorDialect, mlir::gpu::GPUDialect, mlir::func::FuncDialect, mlir::math::MathDialect, frontend::frontendDialect>();
 		mlir::spirv::registerSPIRVTargetInterfaceExternalModels(ctx);
 		this->initialize();
 	}
@@ -128,7 +120,8 @@ public:
 		entry_block = main_func_op.addEntryBlock();
 		
 		mlir::OpBuilder builder(main_func_op.getBody());
-		auto returnOp = builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());			
+		auto returnOp = builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());	
+		this->global_module.push_back(main_func_op.getOperation());
 	}
 
 	void run() {
@@ -137,7 +130,7 @@ public:
 		global_module->walk([&](mlir::Operation* op) {
 			auto mop = mlir::dyn_cast_or_null<mlir::ModuleOp>(op);
 			if (mop != nullptr)
-				device_modules.push_back(mop.getOperation());
+				device_modules.push_back(op);
 			}
 		);
 

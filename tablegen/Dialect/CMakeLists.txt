@@ -1,2 +1,2 @@
-add_subdirectory(vkml)
-add_subdirectory(vkrt)
+add_subdirectory(frontend)
+add_subdirectory(backend)

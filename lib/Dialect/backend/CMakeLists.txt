@@ -5,8 +5,8 @@ get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
 get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
 
 
-add_mlir_dialect_library(MLIRvkmlDialect vkml.cpp 
-    DEPENDS MLIRvkmlIncGen 
+add_mlir_dialect_library(MLIRbackendDialect backend.cpp 
+    DEPENDS backend_header MLIRbackendIncGen
 
     DISABLE_INSTALL
 
@@ -24,9 +24,4 @@ add_mlir_dialect_library(MLIRvkmlDialect vkml.cpp
     MLIRSPIRVTarget
     MLIRSPIRVTransforms
 
-    MLIRArithDialect
-    MLIRFuncDialect
-    MLIRMemRefDialect
-
-    ${conversion_libs} ${extension_libs} ${translation_libs}
-) 
+)

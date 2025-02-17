@@ -1,0 +1,3 @@
+add_mlir_dialect(frontend frontend)
+add_dependencies(mlir-headers MLIRfrontendIncGen)
+add_custom_target(frontend_header DEPENDS MLIRfrontendIncGen)

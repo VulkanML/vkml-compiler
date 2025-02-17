@@ -1,2 +1,0 @@
-
-add_mlir_dialect_library(MLIRvkrtDialect vkrt.cpp DEPENDS vkml_header)
