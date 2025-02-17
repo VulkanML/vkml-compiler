@@ -49,7 +49,7 @@ include(HandleLLVMOptions)
 include_directories(${MLIR_INCLUDE_DIRS})
 include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/inc)
-include_directories(${CMAKE_CURRENT_BINARY_DIR})
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/tablegen)
 
 add_subdirectory(tablegen)
 add_subdirectory(lib)
@@ -77,8 +77,8 @@ target_include_directories(vkml-compiler PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inc)
 set_property(GLOBAL PROPERTY VKML_COMPILER_HEADERS ${MLIR_INCLUDE_DIRS} ${LLVM_INCLUDE_DIRS})
 
 target_link_libraries(vkml-compiler PRIVATE
-	MLIRvkrtDialect
-	MLIRvkmlDialect	
+	MLIRbackendDialect
+	MLIRfrontendDialect	
 )
 
 

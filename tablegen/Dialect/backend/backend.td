@@ -4,9 +4,9 @@
 
 include "mlir/IR/OpBase.td"
 
-def vkrtDialect : Dialect {
-    let name = "vkrt";
-    let cppNamespace = "::runt";
+def backendDialect : Dialect {
+    let name = "backend";
+    let cppNamespace = "::backend";
     let summary = "vkrt dialect for vkml backend operations";
     let useDefaultTypePrinterParser = true;
     let dependentDialects = [

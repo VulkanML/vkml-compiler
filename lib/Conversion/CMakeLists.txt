@@ -1,11 +1,13 @@
-#add_mlir_library(
-#	VKMLTransforms
-#	VkmlToCompPass.cpp
+add_mlir_library(Conversion
+  lowerFrontendToMLIRPass.cpp
 
-#	DEPENDS MLIRVKMLIncGen
+  LINK_LIBS PUBLIC
+  MLIRIR
+  MLIRPass
+  MLIRTransforms
+  FrontendDialect
+)
 
-#	LINK_LIBS PUBLIC
-#	MLIRIR
-#	MLIRArithDialect
-#	MLIRTensorDialect
-#)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+add_dependencies(Conversion MLIRFrontendIncGen)
+add_dependencies(Conversion MLIRFrontendConversionPass)
