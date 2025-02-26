@@ -24,8 +24,6 @@
 
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 
-//#include "mlir/Dialect/MemRef/Transforms/Passes.h"
-
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
@@ -37,6 +35,7 @@
 //#include "mlir/Target/SPIRV/Deserialization.h"
 //
 //#include <mlir/Target/SPIRV/Target.h>
+//#include "mlir/Dialect/MemRef/Transforms/Passes.h"
 
 
 
@@ -65,7 +64,9 @@ class Compiler {
 	std::map<std::string, mlir::Operation*> srcs;
 	mlir::PassManager pm;
 
-
+	mlir::RankedTensorType getRankedTensorType(const std::vector<int64_t>& shape, uint32_t type) {
+		return mlir::RankedTensorType::get(shape, toMLIRType(&ctx, type));
+	}
 
 public:
 	~Compiler() {}
@@ -93,14 +94,39 @@ public:
 		mlir::OpBuilder builder(main_func_op.getBody());
 		builder.setInsertionPointAfterValue(srcs[input_name]->getResult(0));
 		mlir::Operation* input_op = srcs[input_name];
-		switch (operator_type) {
-		case 0:
-			auto t = mlir::dyn_cast<mlir::tensor::EmptyOp>(input_op).getType();
-			auto abs_op = builder.create<frontend::abs>(builder.getUnknownLoc(), t, srcs[input_name]->getResult(0));
-			srcs[op_name] = abs_op.getOperation();
-			break;
-		};
+		auto unary_operator_type = frontend::symbolizeUnaryArithEnum(operator_type);
+		auto type = input_op->getResult(0).getType();
 
+		if(unary_operator_type.has_value()) {
+			auto ops = builder.create<frontend::unary_arith>(builder.getUnknownLoc(),
+				type,
+				input_op->getResult(0), 
+				frontend::UnaryArithEnumAttr::get(&ctx, unary_operator_type.value()));
+			srcs[op_name] = ops.getOperation();
+		}
+		else {
+			throw std::exception("Invalid operator type");
+		}
+
+	}
+
+	void addOp(size_t operator_type, std::string op_name, std::string input_0_name, std::string input_1_name) {
+		mlir::OpBuilder builder(main_func_op.getBody());
+		builder.setInsertionPointAfterValue(srcs[input_1_name]->getResult(0));
+		mlir::Operation* input_op_0 = srcs[input_0_name];
+		mlir::Operation* input_op_1 = srcs[input_1_name];
+		auto binary_operator_type = frontend::symbolizeBinaryArithEnum(operator_type);
+		if (binary_operator_type.has_value()) {
+			auto ops = builder.create<frontend::binary_arith>(builder.getUnknownLoc(),
+				input_op_0->getResult(0).getType(),
+				input_op_0->getResult(0),
+				input_op_1->getResult(0),
+				frontend::BinaryArithEnumAttr::get(&ctx, binary_operator_type.value()));
+			srcs[op_name] = ops.getOperation();
+		}
+		else {
+			throw std::exception("Invalid operator type");
+		}
 	}
 	
 	void dump() {
@@ -135,14 +161,10 @@ public:
 		);
 
 		for (auto* dMod : device_modules) {
-			pm.run(dMod);
+			
 		}
 	}
 };
 
-
-
-
 }
-
 #endif
