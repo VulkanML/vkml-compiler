@@ -11,8 +11,22 @@ def lowerFrontendToMLIR : Pass<"lower-frontend-to-mlir"> {
 }
 
 def lowerFrontendToBackend : Pass<"lower-frontend-to-backend"> {
-  let summary = "Convert frontend dialect to Comp dialect";
+  let summary = "Convert frontend dialect to backend dialect";
   let constructor = "frontend::createLowerFrontendToBackendPass()";
+  let options = [
+  ];
+}
+
+def lowerFrontendToMath : Pass<"lower-frontend-to-math"> {
+  let summary = "Convert frontend dialect to Math dialect";
+  let constructor = "frontend::createLowerFrontendToMathPass()";
+  let options = [
+  ];
+}
+
+def lowerFrontendToTosa : Pass<"lower-frontend-to-tosa"> {
+  let summary = "Convert frontend dialect to Tosa dialect";
+  let constructor = "frontend::createLowerFrontendToTosaPass()";
   let options = [
   ];
 }

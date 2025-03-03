@@ -69,6 +69,8 @@ def frontend_mul : I32EnumAttrCase<"MUL", 2, "mul">;
 def frontend_div : I32EnumAttrCase<"DIV", 3, "div">;
 def frontend_mod : I32EnumAttrCase<"MOD", 4, "mod">;
 def frontend_pow : I32EnumAttrCase<"POW", 5, "pow">;
+def frontend_max : I32EnumAttrCase<"MAX", 6, "max">;
+def frontend_min : I32EnumAttrCase<"MIN", 7, "min">;
 
 def frontend_reduce_sum : I32EnumAttrCase<"REDUCE_SUM", 0, "reduce_sum">;
 def frontend_reduce_max : I32EnumAttrCase<"REDUCE_MAX", 1, "reduce_max">;
@@ -137,7 +139,9 @@ def BinaryArithEnum : I32EnumAttr<"BinaryArithEnum", "an enum", [
                             frontend_mul,
                             frontend_div,
                             frontend_mod,
-                            frontend_pow ]> {
+                            frontend_pow,
+                            frontend_max,
+                            frontend_min ]> {
   
   let cppNamespace = "::frontend";
   let genSpecializedAttr = 0;

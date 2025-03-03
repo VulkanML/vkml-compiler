@@ -18,6 +18,10 @@ using namespace mlir;
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/Dialect/Math/IR/Math.h>
 
+#include <mlir/Dialect/GPU/IR/GPUDialect.h>
+#include <mlir/Dialect/GPU/Transforms/ParallelLoopMapper.h>
+#include <mlir/Dialect/GPU/Transforms/Passes.h>
+
 #include "Dialect/frontend/frontendDialect.h.inc"
 #include "Dialect/frontend/frontendEnums.h.inc"
 #define GET_ATTRDEF_CLASSES
