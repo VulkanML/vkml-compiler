@@ -11,10 +11,9 @@ mlir_tablegen(frontendDialect.h.inc -gen-dialect-decls -dialect=frontend)
 mlir_tablegen(frontendDialect.cpp.inc -gen-dialect-defs -dialect=frontend)
 add_public_tablegen_target(MLIRfrontendIncGen)
 add_dependencies(mlir-headers MLIRfrontendIncGen)
-add_custom_target(frontend_header DEPENDS MLIRfrontendIncGen)
 
-set(LLVM_TARGET_DEFINITIONS pass.td)
+set(LLVM_TARGET_DEFINITIONS frontend_pass.td)
 mlir_tablegen(frontend_pass.h.inc -gen-pass-decls)
+add_public_tablegen_target(MLIRFrontendConversionPass)  
 
-add_public_tablegen_target(MLIRFrontendConversionPass)
-add_dependencies(frontend_header MLIRFrontendConversionPass)
+add_custom_target(frontend_header DEPENDS MLIRfrontendIncGen MLIRFrontendConversionPass)
