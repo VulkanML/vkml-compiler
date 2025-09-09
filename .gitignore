@@ -38,3 +38,8 @@ out
 .vs/
 .vscode/
 .aider*
+
+out/
+build/
+
+.cache/

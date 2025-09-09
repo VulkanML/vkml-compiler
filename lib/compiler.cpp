@@ -3,7 +3,7 @@
 
 
 namespace compiler {
-	mlir::spirv::TargetEnvAttr registerTargetEnv(
+	/*mlir::spirv::TargetEnvAttr registerTargetEnv(
 		mlir::MLIRContext* ctx,
 		uint32_t device_id,
 		uint32_t vendor_id,
@@ -90,5 +90,5 @@ namespace compiler {
 		default:
 			return mlir::NoneType::get(ctx);
 		};
-	}
+	}*/
 }
