@@ -1,0 +1,4 @@
+<unknown>:0: error: MLIR Textual PassPipeline Parser:1:11: error: 'tosa-to-linalg-on-tensors' does not refer to a registered pass or pass pipeline
+func.func(tosa-to-linalg-on-tensors,canonicalize,cse,linalg-fuse-elementwise-ops,linalg-tiling-and-distribute{tile-sizes=[2,3]},linalg-bufferize,convert-linalg-to-loops,vectorize,convert-linalg-to-gpu{workgroup-size=[1,1]},gpu-kernel-outlining)
+          ^
+
