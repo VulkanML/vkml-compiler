@@ -12,42 +12,68 @@
       "cacheVariables": { "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=mold", "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=mold" }
     },
     {
-      "name": "linux-debug",
+      "name": "clang-tidy",
+      "hidden": true,
+      "cacheVariables": { "CMAKE_CXX_CLANG_TIDY": "clang-tidy" }
+    },
+    {
+      "name": "clangd",
+      "hidden": true,
+      "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
+    },
+    {
+      "name": "Ninja",
+      "hidden": true,
+      "generator": "Ninja"
+    },
+    {"name": "Unix Makefiles",
+      "hidden": true,
+      "generator": "Unix Makefiles"
+    },
+    {
+      "name": "msvc",
+      "hidden": true,
+      "cacheVariables": { "CMAKE_CXX_STANDARD": "20", "CMAKE_C_STANDARD": "11", "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>" },
+      "generator": "Visual Studio 17 2022"
+    },
+
+    {
+      "name": "config",
+      "hidden": true,
+      "installDir": "${sourceDir}/install/${presetName}",
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+
+    {
+      "name": "linux-base",
       "displayName": "Linux Debug",
       "description": "Target the Windows Subsystem for Linux (WSL) or a remote Linux system.",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/install/${presetName}",
+      "inherits": ["config"],
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
         "rhs": "Linux"
-      },
-      "vendor": { "microsoft.com/VisualStudioRemoteSettings/CMake/2.0": { "remoteSourceRootDir": "$env{HOME}/.vs/$ms{projectDirName}" } }
+      }
     },
     {
-      "name": "macos-debug",
+      "name": "macos-base",
       "displayName": "macOS Debug",
       "description": "Target a remote macOS system.",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/install/${presetName}",
+      "inherits": ["config"],
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
         "rhs": "Darwin"
-      },
-      "vendor": { "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": { "sourceDir": "$env{HOME}/.vs/$ms{projectDirName}" } }
+      }
     },
     {
       "name": "windows-base",
       "description": "Target Windows with the Visual Studio development environment.",
-      "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/install/${presetName}",
+      "inherits": ["config", "msvc"],
       "cacheVariables": {
         "CMAKE_C_COMPILER": "cl.exe",
         "CMAKE_CXX_COMPILER": "cl.exe"
@@ -61,8 +87,7 @@
     {
       "name": "x64-debug",
       "displayName": "Debug",
-      "description": "Target Windows (64-bit) with the Visual Studio development environment. (Debug)",
-      "inherits": "windows-base",
+      "inherits": ["windows-base", "linux-base", "macos-base", "ccache"],
       "architecture": {
         "value": "x64",
         "strategy": "external"
@@ -72,7 +97,6 @@
     {
       "name": "x64-release",
       "displayName": "Release",
-      "description": "Target Windows (64-bit) with the Visual Studio development environment. (RelWithDebInfo)",
       "inherits": "x64-debug",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     }
