@@ -21,7 +21,8 @@ public:
     // Conversion constructor: Tensor<U> from Tensor<T>
     template<typename U,
         typename = std::enable_if_t<std::is_convertible_v<U, T>>>
-    Tensor(const Tensor<U>& other) {
+    explicit Tensor(const Tensor<U>& other) {
+
         shape_ = other.getShape();
         symbolic_id_ = other.getSymbolicId(); // base ID reuse or regenerate below
 
@@ -36,9 +37,18 @@ public:
             value_ = other.getValue();
         }
     }
+
+    template<typename U, 
+    typename = std::enable_if_t<std::is_arithmetic_v<U>>>
+    explicit Tensor(const U& scalar): shape_{1}, symbolic_id_("scalar_" + std::to_string(scalar)) {
+        // Initialize mlir::Value to represent the scalar
+        // Placeholder for MLIR constant op creation (depends on your dialect / builder context):
+        // value_ = createConstantOp(builder, scalar, typeOf<U>);
+    }
+
     const std::vector<int>& getShape() const { return shape_; }
     std::string getSymbolicId() const { return symbolic_id_; }
-	mlir::Value getValue() const { return value_; }
+	  mlir::Value getValue() const { return value_; }
 
 private:
     std::vector<int> shape_;
@@ -62,12 +72,30 @@ private:
     template<>
     struct is_character_or_byte_or_bool<bool> : std::true_type {};
 
+    static std::vector<int> broadcastShapes(const std::vector<int>& shape1, const std::vector<int>& shape2) {
+        std::vector<int> result;
+        auto it1 = shape1.rbegin();
+        auto it2 = shape2.rbegin();
+        while (it1 != shape1.rend() || it2 != shape2.rend()) {
+            int dim1 = (it1 != shape1.rend()) ? *it1 : 1;
+            int dim2 = (it2 != shape2.rend()) ? *it2 : 1;
+            if (dim1 != dim2 && dim1 != 1 && dim2 != 1) {
+                throw std::invalid_argument("Shapes cannot be broadcast together");
+            }
+            result.push_back(std::max(dim1, dim2));
+            if (it1 != shape1.rend()) ++it1;
+            if (it2 != shape2.rend()) ++it2;
+        }
+        std::reverse(result.begin(), result.end());
+        return result;
+    }
+
 public:
 
     // Arithmetic operators
     template<typename U, typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_signed_v<U>>>
     friend Tensor<U> operator+(const Tensor<U>& t) {
-		return Tensor<U>(t.getShape());
+  	  return Tensor<U>(t.getShape());
     }
 
     template<typename U, typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_signed_v<U>>>
@@ -90,131 +118,132 @@ public:
         std::is_arithmetic_v<U> && std::is_arithmetic_v<V> >>
     friend auto operator+(const Tensor<U>& lhs, const Tensor<V>& rhs) {
         using ResultType = std::common_type_t<U, V>;
-        return Tensor<ResultType>(lhs.getShape());
+        return Tensor<ResultType>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
     template<typename U, typename V, typename = std::enable_if_t<
 		std::is_arithmetic_v<U>&& std::is_arithmetic_v<V> >>
     friend auto operator-(const Tensor<U>& lhs, const Tensor<V>& rhs) {
         using ResultType = std::common_type_t<U, V>;
-		return Tensor<ResultType>(lhs.getShape());
+		return Tensor<ResultType>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
 	template<typename U, typename V, typename = std::enable_if_t<
 		std::is_arithmetic_v<U>&& std::is_arithmetic_v<V> >>
     friend auto operator*(const Tensor<U>& lhs, const Tensor<V>& rhs) {
 		using ResultType = std::common_type_t<U, V>;
-		return Tensor<ResultType>(lhs.getShape());
+		return Tensor<ResultType>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
 	template<typename U, typename V, typename = std::enable_if_t<
 		std::is_arithmetic_v<U>&& std::is_arithmetic_v<V> >>
 	friend auto operator/(const Tensor<U>& lhs, const Tensor<V>& rhs) {
 		using ResultType = std::common_type_t<U, V>;
-		return Tensor<ResultType>(lhs.getShape());
+		return Tensor<ResultType>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
 	template<typename U, typename V, typename = std::enable_if_t<
 		std::is_arithmetic_v<U>&& std::is_integral_v<V> >>
 	friend auto operator%(const Tensor<U>& lhs, const Tensor<V>& rhs) {
 		using ResultType = std::common_type_t<U, V>;
-		return Tensor<ResultType>(lhs.getShape());
+		return Tensor<ResultType>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
 
-    template<typename U, typename V, typename = std::enable_if_t<
+  template<typename U, typename V, typename = std::enable_if_t<
 		std::is_integral_v<U>&& std::is_integral_v<V>&& std::is_unsigned_v<U>&& std::is_unsigned_v<V>>>
 	friend auto operator&(const Tensor<U>& lhs, const Tensor<V>& rhs) {
 		using ResultType = std::common_type_t<U, V>;
-		return Tensor<ResultType>(lhs.getShape());
+		return Tensor<ResultType>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
 	template<typename U, typename V, typename = std::enable_if_t<
 		std::is_integral_v<U>&& std::is_integral_v<V>&& std::is_unsigned_v<U>&& std::is_unsigned_v<V>>>
-        friend auto operator|(const Tensor<U>& lhs, const Tensor<V>& rhs) {
+  friend auto operator|(const Tensor<U>& lhs, const Tensor<V>& rhs) {
         using ResultType = std::common_type_t<U, V>;
-        return Tensor<ResultType>(lhs.getShape());
+        return Tensor<ResultType>(broadcastShapes(lhs.getShape(), rhs.getShape()));
     }
 
 	template<typename U, typename V, typename = std::enable_if_t<
         std::is_integral_v<U>&& std::is_integral_v<V>&& std::is_unsigned_v<U>&& std::is_unsigned_v<V>>>
-    friend auto operator^(const Tensor<U>& lhs, const Tensor<V>& rhs) {
+  friend auto operator^(const Tensor<U>& lhs, const Tensor<V>& rhs) {
         using ResultType = std::common_type_t<U, V>;
-        return Tensor<ResultType>(lhs.getShape());
+        return Tensor<ResultType>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
 
 	template<typename U, typename V, typename = std::enable_if_t<
         std::is_integral_v<U>&& std::is_integral_v<V>&& std::is_unsigned_v<U>&& std::is_unsigned_v<V>>>
-    friend auto operator<<(const Tensor<U>& lhs, const Tensor<V>& rhs) {
+  friend auto operator<<(const Tensor<U>& lhs, const Tensor<V>& rhs) {
         using ResultType = std::common_type_t<U, V>;
-        return Tensor<ResultType>(lhs.getShape());
+        return Tensor<ResultType>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
-    template<typename U, typename V, typename = std::enable_if_t<
+  template<typename U, typename V, typename = std::enable_if_t<
 		std::is_integral_v<U>&& std::is_integral_v<V>&& std::is_unsigned_v<U>&& std::is_unsigned_v<V>>>
-    friend auto operator>>(const Tensor<U>& lhs, const Tensor<V>& rhs) {
+  friend auto operator>>(const Tensor<U>& lhs, const Tensor<V>& rhs) {
         using ResultType = std::common_type_t<U, V>;
-		return Tensor<ResultType>(lhs.getShape());
+		return Tensor<ResultType>(broadcastShapes(lhs.getShape(), rhs.getShape()));
+
 	}
 
 
     // Increment and decrement operators    
-    Tensor<T>& operator++() {        
-        return *this;
-    }
+  Tensor<T>& operator++() {        
+      return *this;
+  }
 
-    Tensor<T>& operator--() {
-        return *this;
-    }
+  Tensor<T>& operator--() {
+      return *this;
+  }
 
     // Comparison operators
 	template<typename U, typename V, typename = std::enable_if_t <
 		std::is_arithmetic_v<U>&& std::is_arithmetic_v<V> >>
-    friend auto operator==(const Tensor<U>& lhs, const Tensor<V>& rhs) {
-        return Tensor<bool>(lhs.getShape());
+  friend auto operator==(const Tensor<U>& lhs, const Tensor<V>& rhs) {
+      return Tensor<bool>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
 	template<typename U, typename V, typename = std::enable_if_t <
 		std::is_arithmetic_v<U>&& std::is_arithmetic_v<V> >>
-    friend auto operator!=(const Tensor<T>& lhs, const Tensor<T>& rhs) {
-        return Tensor<bool>(lhs.getShape());
+  friend auto operator!=(const Tensor<T>& lhs, const Tensor<T>& rhs) {
+      return Tensor<bool>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
 	template<typename U, typename V, typename = std::enable_if_t <
 		std::is_arithmetic_v<U>&& std::is_arithmetic_v<V> >>
-    friend auto operator<(const Tensor<U>& lhs, const Tensor<V>& rhs) {
-        return Tensor<bool>(lhs.getShape());
-    }
+  friend auto operator<(const Tensor<U>& lhs, const Tensor<V>& rhs) {
+        return Tensor<bool>(broadcastShapes(lhs.getShape(), rhs.getShape()));
+  }
 
 	template<typename U, typename V, typename = std::enable_if_t <
 		std::is_arithmetic_v<U>&& std::is_arithmetic_v<V> >>
-    friend auto operator>(const Tensor<U>& lhs, const Tensor<V>& rhs) {
-		return Tensor<bool>(lhs.getShape());
+  friend auto operator>(const Tensor<U>& lhs, const Tensor<V>& rhs) {
+		  return Tensor<bool>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
 	template<typename U, typename V, typename = std::enable_if_t <
 		std::is_arithmetic_v<U>&& std::is_arithmetic_v<V> >>
-    friend auto operator>=(const Tensor<U>& lhs, const Tensor<V>& rhs) {
-		return Tensor<bool>(lhs.getShape());
+  friend auto operator>=(const Tensor<U>& lhs, const Tensor<V>& rhs) {
+		  return Tensor<bool>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
     template<typename U, typename V, typename = std::enable_if_t <
 		std::is_arithmetic_v<U>&& std::is_arithmetic_v<V> >>
     friend auto operator<=(const Tensor<U>& lhs, const Tensor<V>& rhs) {
-        return Tensor<bool>(lhs.getShape());
+        return Tensor<bool>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
     template<typename U, typename V, typename = std::enable_if_t <
 		std::is_arithmetic_v<U>&& std::is_arithmetic_v<V> >>
     friend auto operator&&(const Tensor<U>& lhs, const Tensor<V>& rhs) {
-        return Tensor<bool>(lhs.getShape());
+        return Tensor<bool>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
     template<typename U, typename V, typename = std::enable_if_t <
         std::is_arithmetic_v<U> && std::is_arithmetic_v<V> >>
 	friend auto operator||(const Tensor<U>& lhs, const Tensor<V>& rhs) {
-        return Tensor<bool>(lhs.getShape());
+        return Tensor<bool>(broadcastShapes(lhs.getShape(), rhs.getShape()));
 	}
 
     // Subscript operator
@@ -243,15 +272,12 @@ public:
     }
 
     // Function call operator
-
-    // Fix for E0345: too few parameters for this operator function
-    // The comma operator must take two parameters (lhs, rhs).
     template<typename U, typename V>
     friend Tensor<std::common_type_t<U, V>> operator,(const Tensor<U>& lhs, const Tensor<V>& rhs) {
         using ResultType = std::common_type_t<U, V>;
         // Implement the desired behavior for the comma operator here.
         // For demonstration, return a Tensor with the shape of lhs.
-        return Tensor<ResultType>(lhs.getShape());
+        return Tensor<ResultType>(broadcastShapes(lhs.getShape(), rhs.getShape()));
     }
 
     // Assignment operator
