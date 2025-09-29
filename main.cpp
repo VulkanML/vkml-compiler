@@ -34,8 +34,16 @@
 
 int main() {
     Tensor<float> tensor_0({2, 3});
-    Tensor<float> tensor_1({2, 3});
+    Tensor<float> tensor_1({1, 3});
     auto result = tensor_0 + tensor_1;
-    std::cout << "Result Tensor: " << result << std::endl;
+    auto result2 = result -tensor_0;
+
+    
+    std::cout << "Tensor 0: " << tensor_0 << std::endl;
+    std::cout << "Tensor 1: " << tensor_1 << std::endl;
+    // std::cout << "Result Tensor: " << result << std::endl;
+    // std::cout << "Result2 Tensor: " << result2 << std::endl;
+    
+    vkml::dump();
     return 0;
  }

@@ -1,104 +1,213 @@
-﻿{
-  "version": 3,
-  "configurePresets": [
-    {
-      "name": "ccache",
-      "hidden": true,
-      "cacheVariables": { "CMAKE_CXX_COMPILER_LAUNCHER": "ccache", "CMAKE_C_COMPILER_LAUNCHER": "ccache" }    
-    },
-    {
-      "name": "mold",
-      "hidden": true,
-      "cacheVariables": { "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=mold", "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=mold" }
-    },
-    {
-      "name": "clang-tidy",
-      "hidden": true,
-      "cacheVariables": { "CMAKE_CXX_CLANG_TIDY": "clang-tidy" }
-    },
-    {
-      "name": "clangd",
-      "hidden": true,
-      "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
-    },
-    {
-      "name": "Ninja",
-      "hidden": true,
-      "generator": "Ninja"
-    },
-    {"name": "Unix Makefiles",
-      "hidden": true,
-      "generator": "Unix Makefiles"
-    },
-    {
-      "name": "msvc",
-      "hidden": true,
-      "cacheVariables": { "CMAKE_CXX_STANDARD": "20", "CMAKE_C_STANDARD": "11", "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>" },
-      "generator": "Visual Studio 17 2022"
-    },
-
-    {
-      "name": "config",
-      "hidden": true,
-      "installDir": "${sourceDir}/install/${presetName}",
-      "binaryDir": "${sourceDir}/build/${presetName}"
-    },
-
-    {
-      "name": "linux-base",
-      "displayName": "Linux Debug",
-      "description": "Target the Windows Subsystem for Linux (WSL) or a remote Linux system.",
-      "generator": "Ninja",
-      "inherits": ["config"],
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Linux"
-      }
-    },
-    {
-      "name": "macos-base",
-      "displayName": "macOS Debug",
-      "description": "Target a remote macOS system.",
-      "generator": "Ninja",
-      "inherits": ["config"],
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Darwin"
-      }
-    },
-    {
-      "name": "windows-base",
-      "description": "Target Windows with the Visual Studio development environment.",
-      "inherits": ["config", "msvc"],
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "cl.exe",
-        "CMAKE_CXX_COMPILER": "cl.exe"
-      },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Windows"
-      }
-    },
-    {
-      "name": "x64-debug",
-      "displayName": "Debug",
-      "inherits": ["windows-base", "linux-base", "macos-base", "ccache"],
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
-    },
-    {
-      "name": "x64-release",
-      "displayName": "Release",
-      "inherits": "x64-debug",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
-    }
-  ]
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "ccache",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+                "CMAKE_C_COMPILER_LAUNCHER": "ccache"
+            }
+        },
+        {
+            "name": "mold",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=mold",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=mold"
+            }
+        },
+        {
+            "name": "clang-tidy",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_CXX_CLANG_TIDY": "clang-tidy"
+            }
+        },
+        {
+            "name": "clangd",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "msvc",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_CXX_STANDARD": "20",
+                "CMAKE_C_STANDARD": "11"
+            },
+            "generator": "Visual Studio 17 2022"
+        },
+        {
+            "name": "dirs",
+            "hidden": true,
+            "installDir": "${sourceDir}/install/${presetName}",
+            "binaryDir": "${sourceDir}/build/${presetName}"
+        },
+        {
+            "name": "linux-base",
+            "hidden": true,
+            "inherits": [
+                "dirs",
+                "mold",
+                "ccache"
+            ],
+            "generator": "Ninja",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            }
+        },
+        {
+            "name": "macos-base",
+            "hidden": true,
+            "inherits": [
+                "dirs"
+            ],
+            "generator": "Ninja",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            }
+        },
+        {
+            "name": "windows-base",
+            "hidden": true,
+            "inherits": [
+                "dirs",
+                "msvc",
+                "ccache"
+            ],
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "cl.exe",
+                "CMAKE_CXX_COMPILER": "cl.exe"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "x64-debug-linux",
+            "displayName": "Debug",
+            "inherits": [
+                "linux-base",
+                "clangd"
+            ],
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "x64-release-linux",
+            "displayName": "Release",
+            "inherits": [
+                "linux-base"
+            ],
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "x64-debug-macos",
+            "displayName": "Debug",
+            "inherits": [
+                "macos-base"
+            ],
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "x64-release-macos",
+            "displayName": "Release",
+            "inherits": [
+                "macos-base"
+            ],
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "x64-debug-windows",
+            "displayName": "Debug",
+            "inherits": [
+                "windows-base",
+                "clangd"
+            ],
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "x64-release-windows",
+            "displayName": "Release",
+            "inherits": [
+                "windows-base"
+            ],
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "vkml",
+            "configurePreset": "x64-debug-linux",
+            "targets": [
+                "vkml-test-app",
+                "vkml-opt",
+                "vkml-translate"
+            ],
+            "configuration": "Debug"
+        },
+        {
+            "name": "vkml-lib",
+            "configurePreset": "x64-release-linux",
+            "targets": [
+                "vkml-lib"
+            ],
+            "configuration": "Release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "cTest",
+            "description": "",
+            "displayName": "",
+            "configurePreset": "x64-debug-linux",
+            "execution": {
+                
+            }
+        }
+    ]
 }
