@@ -44,6 +44,7 @@ int main() {
     // std::cout << "Result Tensor: " << result << std::endl;
     // std::cout << "Result2 Tensor: " << result2 << std::endl;
     
-    vkml::dump();
+    std::cout << "MLIR Module:\n" ; vkml::dump(std::cout);
+
     return 0;
  }

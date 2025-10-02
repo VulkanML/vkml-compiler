@@ -77,6 +77,7 @@ target_link_libraries(vkml-compiler
 # 	"MLIRTensorTransformOps"
 # 	"MLIRTensorToSPIRV" 
 # 	"MLIRTensorTransforms"
+	"MLIRFuncDialect"
 	"MLIRTosaDialect" 
 # 	"MLIRTosaTransforms"
 # 	"MLIRTosaToLinalg" 

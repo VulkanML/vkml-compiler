@@ -36,11 +36,11 @@
 out
 *.inc
 .vs/
+.kilocode/
 .vscode/
-.aider*
 
 out/
 build/
 install/
-
+x64*
 .cache/
