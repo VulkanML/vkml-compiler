@@ -16,6 +16,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
+#include "llvm-c/Core.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/raw_os_ostream.h"
 
@@ -67,6 +68,7 @@ namespace vkml {
         mlir::MLIRContext context_;
         mlir::OpBuilder builder_;
         mlir::ModuleOp module_;
+        mlir::func::FuncOp func_;
         static std::shared_ptr<Compiler> instance_;
 
         Compiler(): context_(), builder_(&context_) {
@@ -92,16 +94,16 @@ namespace vkml {
         mlir::Location getUnknownLoc() { return builder_.getUnknownLoc(); }
 
         mlir::func::FuncOp getOrCreateMain() {
-            if (auto f = module_.lookupSymbol<mlir::func::FuncOp>("main"))
-                return f;
+            if (auto func_ = module_.lookupSymbol<mlir::func::FuncOp>("main"))
+                return func_;
             auto loc = builder_.getUnknownLoc();
             auto fnType = builder_.getFunctionType({}, {});
-            auto func = builder_.create<mlir::func::FuncOp>(loc, "main", fnType);
-            auto *entry = func.addEntryBlock();
+            func_ = builder_.create<mlir::func::FuncOp>(loc, "main", fnType);
+            auto *entry = func_.addEntryBlock();
              mlir::OpBuilder::InsertionGuard g(builder_);
             builder_.setInsertionPointToStart(entry);
             builder_.create<mlir::func::ReturnOp>(loc);
-            return func;
+            return func_;
         }
         void setInsertionIntoMain() {
             auto func = getOrCreateMain();
@@ -113,9 +115,6 @@ namespace vkml {
         mlir::tosa::VariableOp createVariable(mlir::RankedTensorType type,
                                             llvm::ArrayRef<int64_t> shape,
                                             llvm::StringRef name) {
-            mlir::OpBuilder::InsertionGuard g(builder_);
-            // Module body is a single block; place at end (or start if you prefer).
-            builder_.setInsertionPointToStart(module_.getBody());
             auto loc = builder_.getUnknownLoc();
             auto shapeAttr = builder_.getI64TensorAttr(shape);
             auto nameAttr = builder_.getStringAttr(name);
@@ -127,17 +126,15 @@ namespace vkml {
 
     std::shared_ptr<Compiler> Compiler::instance_ = nullptr;
 
-    inline std::ostream& dump(std::ostream& os){
-        llvm::raw_os_ostream llvm_os(os);
+    inline void dump(){
         if(mlir::failed( Compiler::getInstance()->getModule().verify() )){
             throw std::runtime_error("Module verification failed");
         }
-
+      
         mlir::OpPrintingFlags flags;
         flags.printGenericOpForm();
         flags.shouldPrintDebugInfo();
-        Compiler::getInstance()->getModule().print(llvm_os, flags);
-        return os;
+        Compiler::getInstance()->getModule().print(llvm::outs(), flags);    
     }
    
 }
@@ -181,8 +178,8 @@ public:
         static int id_counter = 0; 
         symbolic_id_ = "tensor_" + std::to_string(id_counter++);
         auto compiler = vkml::Compiler::getInstance();
-        variableOp_ = compiler->createVariable(type_, shape_, symbolic_id_);
         compiler->setInsertionIntoMain();
+        variableOp_ = compiler->createVariable(type_, shape_, symbolic_id_);
         
     }
     
