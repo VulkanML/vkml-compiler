@@ -44,3 +44,6 @@ build/
 install/
 x64*
 .cache/
+.gemini/
+gha-creds-*.json
+GEMINI.md

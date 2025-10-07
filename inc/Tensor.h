@@ -1,24 +1,41 @@
 #pragma once
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/Location.h>
-#include <mlir/IR/MLIRContext.h>
-#include <mlir/Support/LLVM.h>
+#include "mlir/Conversion/TosaToLinalg/TosaToLinalg.h"
+#include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
+#include "mlir/Conversion/GPUToSPIRV/GPUToSPIRVPass.h"
+
+
 #include <vector>
 #include <string>
 #include <type_traits>
 #include <cstddef>
 #include <ostream>
+#include <unordered_map>
 
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Location.h>
+#include <mlir/IR/MLIRContext.h>
+#include <mlir/Support/LLVM.h>
+
+
+#include "mlir/Conversion/TosaToSCF/TosaToSCF.h"
+#include "mlir/Conversion/TosaToTensor/TosaToTensor.h"
 #include "mlir/IR/OperationSupport.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
-#include "llvm-c/Core.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/raw_os_ostream.h"
+#include "mlir/IR/Verifier.h"
+#include "mlir/Pass/PassManager.h"
+
+#include "mlir/Conversion/TosaToMLProgram/TosaToMLProgram.h"
+#include "mlir/Transforms/Passes.h"
+#include "mlir/Conversion/Passes.h"
 
 
 // Implementation details for Tensor utilities
@@ -56,11 +73,15 @@ namespace tensor_detail {
             throw std::invalid_argument("Unsupported type for MLIR conversion");
         }
     };
+    
 
 }
 
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MLProgram/IR/MLProgram.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+
 
 namespace vkml {
     class Compiler {
@@ -68,15 +89,36 @@ namespace vkml {
         mlir::MLIRContext context_;
         mlir::OpBuilder builder_;
         mlir::ModuleOp module_;
-        mlir::func::FuncOp func_;
+        mlir::func::FuncOp mainFunc_;
+        mlir::PassManager pm_;
         static std::shared_ptr<Compiler> instance_;
-
-        Compiler(): context_(), builder_(&context_) {
+        std::unordered_map<std::string, size_t> func_name_count_map_;
+        Compiler(): context_(), builder_(&context_), pm_(&context_), mainFunc_(nullptr) {
             context_.loadDialect<mlir::tosa::TosaDialect>();
             context_.loadDialect<mlir::func::FuncDialect>();
+            context_.loadDialect<mlir::ml_program::MLProgramDialect>();
+            context_.loadDialect<mlir::gpu::GPUDialect>();
+
             module_ = mlir::ModuleOp::create(builder_.getUnknownLoc());
             builder_.setInsertionPointToStart(module_.getBody());
+            auto loc = builder_.getUnknownLoc();
+            auto fnType = builder_.getFunctionType({}, {});
+            mainFunc_ = builder_.create<mlir::func::FuncOp>(loc, "main", fnType);
+            auto *entry = mainFunc_.addEntryBlock();
+            mlir::OpBuilder::InsertionGuard g(builder_);
+            builder_.setInsertionPointToStart(entry);
+            builder_.create<mlir::func::ReturnOp>(loc);
+            builder_.setInsertionPointToStart(module_.getBody());
+
+            pm_.addPass(mlir::createCanonicalizerPass());
+            pm_.addPass(mlir::createTosaToMLProgram());
+            pm_.addPass(mlir::createTosaToSCFPass());
+            pm_.addNestedPass<mlir::func::FuncOp>(mlir::createTosaToSCFPass());
+            pm_.addPass(mlir::createTosaToTensorPass());
+            pm_.addPass(mlir::tosa::createTosaToLinalg());
+
         }
+
     public:
         
         Compiler(const Compiler&) = delete;
@@ -93,48 +135,75 @@ namespace vkml {
         mlir::ModuleOp getModule() { return module_; }
         mlir::Location getUnknownLoc() { return builder_.getUnknownLoc(); }
 
-        mlir::func::FuncOp getOrCreateMain() {
-            if (auto func_ = module_.lookupSymbol<mlir::func::FuncOp>("main"))
-                return func_;
-            auto loc = builder_.getUnknownLoc();
-            auto fnType = builder_.getFunctionType({}, {});
-            func_ = builder_.create<mlir::func::FuncOp>(loc, "main", fnType);
-            auto *entry = func_.addEntryBlock();
-             mlir::OpBuilder::InsertionGuard g(builder_);
-            builder_.setInsertionPointToStart(entry);
-            builder_.create<mlir::func::ReturnOp>(loc);
-            return func_;
-        }
-        void setInsertionIntoMain() {
-            auto func = getOrCreateMain();
-            auto &block = func.getBody().front();
+       
+        auto setInsertionIntoMain() {
+            auto &block = mainFunc_.getBody().front();
             mlir::Operation *terminator = block.getTerminator();
             builder_.setInsertionPoint(terminator); 
+            return builder_;
+        }
+
+        auto setInsertionGlobalModule() {
+            builder_.setInsertionPointToStart(module_.getBody());
+            return builder_;
         }
 
         mlir::tosa::VariableOp createVariable(mlir::RankedTensorType type,
                                             llvm::ArrayRef<int64_t> shape,
                                             llvm::StringRef name) {
+            setInsertionGlobalModule();
             auto loc = builder_.getUnknownLoc();
-            auto shapeAttr = builder_.getI64TensorAttr(shape);
+            auto shapeAttr = builder_.getIndexTensorAttr(shape);
             auto nameAttr = builder_.getStringAttr(name);
-            auto typeAttr = mlir::TypeAttr::get(type);
+            auto typeAttr = mlir::TypeAttr::get(type.getElementType());
             return builder_.create<mlir::tosa::VariableOp>(loc, nameAttr, shapeAttr, typeAttr, mlir::Attribute{});
         }
 
+        std::string getUniqueFunctionName(const std::string& baseName) {
+            size_t count = func_name_count_map_[baseName]++;
+            if (count == 0) {
+                return baseName;
+            } else {
+                return baseName + "_" + std::to_string(count);
+            }
+        }
+
+        void runTosaToGPU() {
+            pm_.addPass(mlir::createConvertLinalgToLoopsPass());
+            pm_.addPass(mlir::createGpuKernelOutliningPass());
+        //    pm_.addPass(mlir::createConvertGPUToSPIRVPass());
+            if (failed(pm_.run(module_))) {
+                module_.dump();
+                throw std::runtime_error("Failed to run TOSA to GPU conversion");
+            }
+        }
+       
     };
 
     std::shared_ptr<Compiler> Compiler::instance_ = nullptr;
-
     inline void dump(){
-        if(mlir::failed( Compiler::getInstance()->getModule().verify() )){
+        auto mod = Compiler::getInstance()->getModule();
+        if(mlir::failed( mod.verify() )){
+            mod.dump();
             throw std::runtime_error("Module verification failed");
         }
-      
+        if(mlir::failed(mod.verifyRegions())){
+            mod.dump();
+            throw std::runtime_error("Module region verification failed");
+        }
+        if(mlir::failed(mod.verifyInvariants())){
+            mod.dump();
+            throw std::runtime_error("Module type verification failed");
+        }
+        mod.walk([&](mlir::Operation *op) {
+            if (mlir::failed(mlir::verify(op))) {
+                mod.dump();
+                throw std::runtime_error("Operation verification failed");
+            }
+        });
+
         mlir::OpPrintingFlags flags;
-        flags.printGenericOpForm();
-        flags.shouldPrintDebugInfo();
-        Compiler::getInstance()->getModule().print(llvm::outs(), flags);    
+        mod.print(llvm::outs(), flags);
     }
    
 }
@@ -156,14 +225,10 @@ private:
     mutable mlir::tosa::VariableOp variableOp_;
     mutable mlir::tosa::VariableReadOp variableReadOp_;
     mutable mlir::tosa::VariableWriteOp variableWriteOp_;
-   
     
 public:
 
-    // Allow different template instantiations to access private members
-    template<typename> friend class Tensor;
-
-    // Convenience constructor to disambiguate brace-init usage
+  // Convenience constructor to disambiguate brace-init usage
     Tensor(std::initializer_list<int64_t> dims) : Tensor(mlir::ArrayRef<int64_t>(dims.begin(), dims.size())) {}
 
         Tensor(const mlir::ArrayRef<int64_t>& shape)
@@ -177,44 +242,12 @@ public:
 
         static int id_counter = 0; 
         symbolic_id_ = "tensor_" + std::to_string(id_counter++);
-        auto compiler = vkml::Compiler::getInstance();
-        compiler->setInsertionIntoMain();
+        auto compiler = vkml::Compiler::getInstance();        
         variableOp_ = compiler->createVariable(type_, shape_, symbolic_id_);
         
     }
     
-    const std::vector<int64_t>& getShape() const { return shapeStorage_; }
-    std::string getSymbolicId() const { return symbolic_id_; }
-
-    // Conversion constructor: Tensor<U> from Tensor<T>
-    template<typename U,
-        typename = std::enable_if_t<std::is_convertible_v<U, T>>>
-    explicit Tensor(const Tensor<U>& other) {
-        auto readOp = other.read();
-        auto& builder = vkml::Compiler::getInstance()->getBuilder();
-        auto loc = builder.getUnknownLoc();
-        auto ctx = vkml::Compiler::getInstance()->getContext();
-        llvm::SmallVector<mlir::ShapedTypeComponents> inferred;
-        if (mlir::failed(
-            mlir::tosa::CastOp::inferReturnTypeComponents(ctx,
-                std::optional<mlir::Location>{loc},
-                mlir::ValueRange{readOp.getResult()},
-                /*attrs=*/mlir::DictionaryAttr{},
-                /*properties=*/nullptr,
-                /*regions=*/{},
-                inferred))) {
-            throw std::runtime_error("Op::inferReturnTypes failed");
-        }   
-        auto elementType = tensor_detail::cToMLIRType(ctx, typeid(T));
-        auto resultType = mlir::RankedTensorType::get(inferred[0].getDims(), elementType);
-        auto castOp = builder.create<mlir::tosa::CastOp>(loc, resultType, readOp.getResult());
-        this->write(castOp.getResult());
-    this->shapeStorage_ = other.getShape();
-    this->shape_ = shapeStorage_;
-        this->type_ = resultType;
-        this->symbolic_id_ = other.getSymbolicId() + "_casted";
-        this->variableReadOp_ = nullptr;
-    }
+   
 
     explicit Tensor(const T& scalar, const mlir::ArrayRef<int64_t>& shape): Tensor<T>(shape){
         // Initialize mlir::Value to represent the scalar
@@ -224,7 +257,7 @@ public:
 private:
     inline mlir::tosa::VariableReadOp read() const {
         if(variableReadOp_ == nullptr){
-            auto& builder = vkml::Compiler::getInstance()->getBuilder();
+            auto builder = vkml::Compiler::getInstance()->setInsertionIntoMain();
             auto loc = builder.getUnknownLoc();
             variableReadOp_ = builder.create<mlir::tosa::VariableReadOp>(loc, type_, variableOp_.getNameAttr());
         }
@@ -233,112 +266,11 @@ private:
     
     inline void write(mlir::Value newValue)  {
         if(variableWriteOp_ == nullptr) {
-            auto& builder = vkml::Compiler::getInstance()->getBuilder();
+            auto builder = vkml::Compiler::getInstance()->setInsertionIntoMain();
             auto loc = builder.getUnknownLoc();
             variableWriteOp_ = builder.create<mlir::tosa::VariableWriteOp>(loc, variableOp_.getNameAttr(), newValue);
         } 
     } 
-
-    template <typename Op, typename U, typename V, typename W>
-    static auto ternaryOpHelper(const Tensor<U>& a, const Tensor<V>& b, const Tensor<W>& c) {
-        using commonT = std::common_type_t<U, V>;
-        auto& builder = vkml::Compiler::getInstance()->getBuilder();
-        auto loc = builder.getUnknownLoc();
-        auto ctx = vkml::Compiler::getInstance()->getContext();
-        llvm::SmallVector<mlir::ShapedTypeComponents> inferred;
-        if (mlir::failed(
-            Op::inferReturnTypeComponents(ctx,
-                std::optional<mlir::Location>{loc},
-                mlir::ValueRange{a.read().getResult(), b.read().getResult(), c.read().getResult()},
-                /*attrs=*/mlir::DictionaryAttr{},
-                /*properties=*/nullptr,
-                /*regions=*/{},
-                inferred))) {
-            throw std::runtime_error("Op::inferReturnTypes failed");
-        }
-        auto elementType = tensor_detail::cToMLIRType(ctx, typeid(commonT));
-        auto resultType = mlir::RankedTensorType::get(inferred[0].getDims(), elementType);
-        auto op = builder.create<Op>(loc, resultType, a.read().getResult(), b.read().getResult(), c.read().getResult());
-        auto output = Tensor<commonT>(resultType.getShape());
-        output.write(op.getResult());
-        return std::move(output);
-    }
-
-    template<typename Op, typename U , typename V>
-    static auto binaryOpHelper(const Tensor<U>& lhs, const Tensor<V>& rhs){
-        using commonT = std::common_type_t<U, V>;
-        auto &builder = vkml::Compiler::getInstance()->getBuilder();
-        auto loc = builder.getUnknownLoc();
-        auto ctx = vkml::Compiler::getInstance()->getContext();
-        llvm::SmallVector<mlir::ShapedTypeComponents> inferred;
-        if (mlir::failed(
-            Op::inferReturnTypeComponents(ctx,
-                std::optional<mlir::Location>{loc},
-                mlir::ValueRange{lhs.read().getResult(), rhs.read().getResult()},
-                /*attrs=*/mlir::DictionaryAttr{},
-                /*properties=*/nullptr,
-                /*regions=*/{},
-                inferred))) {
-            throw std::runtime_error("Op::inferReturnTypes failed");
-        }
-
-        auto elementType = tensor_detail::cToMLIRType(ctx, typeid(commonT));
-        auto resultType = mlir::RankedTensorType::get(inferred[0].getDims(), elementType);
-        auto op = builder.create<Op>(loc, resultType, lhs.read().getResult(), rhs.read().getResult());
-        auto output = Tensor<commonT>(resultType.getShape());
-        output.write(op.getResult());
-        return std::move(output);
-    }
-
-    template<typename Op, typename U, typename V>
-    static auto logicalOpHelper(const Tensor<U>& lhs, const Tensor<V>& rhs){
-        auto &builder = vkml::Compiler::getInstance()->getBuilder();
-        auto loc = builder.getUnknownLoc();
-        auto ctx = vkml::Compiler::getInstance()->getContext();
-        llvm::SmallVector<mlir::ShapedTypeComponents> inferred;
-        if (mlir::failed(
-            Op::inferReturnTypeComponents(ctx,
-                std::optional<mlir::Location>{loc},
-                mlir::ValueRange{lhs.read().getResult(), rhs.read().getResult()},
-                /*attrs=*/mlir::DictionaryAttr{},
-                /*properties=*/nullptr,
-                /*regions=*/{},
-                inferred))) {
-            throw std::runtime_error("Op::inferReturnTypes failed");
-        }
-
-        auto elementType = tensor_detail::cToMLIRType(ctx, typeid(bool));
-        auto resultType = mlir::RankedTensorType::get(inferred[0].getDims(), elementType);
-        auto op = builder.create<Op>(loc, resultType, lhs.read().getResult(), rhs.read().getResult());
-        auto output = Tensor<bool>(resultType.getShape());
-        output.write(op.getResult());
-        return std::move(output);
-    }
-
-    template<typename Op>
-    auto unaryOpHelper() const {
-        auto &builder = vkml::Compiler::getInstance()->getBuilder();
-        auto loc = builder.getUnknownLoc();
-        auto ctx = vkml::Compiler::getInstance()->getContext();
-        llvm::SmallVector<mlir::ShapedTypeComponents> inferred;
-        if (mlir::failed(
-            Op::inferReturnTypeComponents(ctx,
-                std::optional<mlir::Location>{loc},
-                mlir::ValueRange{this->read().getResult()},
-                /*attrs=*/mlir::DictionaryAttr{},
-                /*properties=*/nullptr,
-                /*regions=*/{},
-                inferred))) {
-            throw std::runtime_error("Op::inferReturnTypes failed");
-        }
-
-        auto elementType = tensor_detail::cToMLIRType(ctx, typeid(T));
-        auto resultType = mlir::RankedTensorType::get(inferred[0].getDims(), elementType);
-        auto op = builder.create<Op>(loc, resultType, this->read().getResult());
-        auto output = Tensor<T>(resultType.getShape());
-        output.write(op.getResult());
-        return std::move(output);
-    }
 
     template<bool isIncrement>
     void applyInPlaceIncrementDecrement(){
@@ -377,20 +309,119 @@ private:
 
 public:
 
+
+ // Expose element type for template utilities (e.g., buildFunctionWrapper)
+    template<typename Op, typename ReturnType, typename... Args>
+    static auto buildFunctionWrapper(Args&&... args) {
+        // Remove references and cv-qualifiers, then map Tensor<E> -> E and compute common type.
+     
+        auto builder = vkml::Compiler::getInstance()->setInsertionGlobalModule();
+        auto loc = builder.getUnknownLoc();
+        auto ctx = vkml::Compiler::getInstance()->getContext();
+        llvm::SmallVector<mlir::Type> argTypes;
+        (argTypes.push_back(std::forward<Args>(args).read().getResult().getType()), ...);
+        llvm::SmallVector<mlir::Value> argValues;
+        (argValues.push_back(std::forward<Args>(args).read().getResult()), ...);
+        llvm::SmallVector<mlir::ShapedTypeComponents> inferred;
+        
+        if (mlir::failed(
+            Op::inferReturnTypeComponents(ctx,
+                std::optional<mlir::Location>{loc},
+                mlir::ValueRange{argValues},
+                /*attrs=*/mlir::DictionaryAttr{},
+                /*properties=*/nullptr,
+                /*regions=*/{},
+                inferred))) {
+            throw std::runtime_error("Op::inferReturnTypes failed");
+        }
+        auto elementType = tensor_detail::cToMLIRType(ctx, typeid(ReturnType));
+        auto resultType = mlir::RankedTensorType::get(inferred[0].getDims(), elementType);
+
+        static int func_counter_ = 0;
+
+        auto fnType = builder.getFunctionType(argTypes, mlir::TypeRange{resultType});
+        auto func = builder.create<mlir::func::FuncOp>(loc, "func_" + vkml::Compiler::getInstance()->getUniqueFunctionName(Op::getOperationName().str()), fnType);
+        auto *entry = func.addEntryBlock();
+        builder.setInsertionPointToStart(entry);
+        auto op = builder.create<Op>(loc, resultType, func.getArguments());       
+        builder.create<mlir::func::ReturnOp>(loc, op.getResult());
+         // Set insertion point back into main function (before its terminator) instead of passing a Region to setInsertionPointToEnd.
+        builder = vkml::Compiler::getInstance()->setInsertionIntoMain();
+        auto callOp = builder.create<mlir::func::CallOp>(loc, func, argValues);
+        auto output = Tensor<ReturnType>(resultType.getShape());
+        output.write(callOp.getResult(0));
+        return std::move(output);
+    }
+
+  
+    const std::vector<int64_t>& getShape() const { return shapeStorage_; }
+    std::string getSymbolicId() const { return symbolic_id_; }
+
+    // Conversion constructor: Tensor<U> from Tensor<T>
+    template<typename U,
+        typename = std::enable_if_t<std::is_convertible_v<U, T>>>
+    explicit Tensor(const Tensor<U>& other) {
+        auto readOp = other.read();
+        auto& builder = vkml::Compiler::getInstance()->getBuilder();
+        auto loc = builder.getUnknownLoc();
+        auto ctx = vkml::Compiler::getInstance()->getContext();
+        llvm::SmallVector<mlir::ShapedTypeComponents> inferred;
+        if (mlir::failed(
+            mlir::tosa::CastOp::inferReturnTypeComponents(ctx,
+                std::optional<mlir::Location>{loc},
+                mlir::ValueRange{readOp.getResult()},
+                /*attrs=*/mlir::DictionaryAttr{},
+                /*properties=*/nullptr,
+                /*regions=*/{},
+                inferred))) {
+            throw std::runtime_error("Op::inferReturnTypes failed");
+        }   
+        auto elementType = tensor_detail::cToMLIRType(ctx, typeid(T));
+        auto resultType = mlir::RankedTensorType::get(inferred[0].getDims(), elementType);
+        auto castOp = builder.create<mlir::tosa::CastOp>(loc, resultType, readOp.getResult());
+        this->write(castOp.getResult());
+        this->shapeStorage_ = other.getShape();
+        this->shape_ = shapeStorage_;
+        this->type_ = resultType;
+        this->symbolic_id_ = other.getSymbolicId() + "_casted";
+        this->variableReadOp_ = nullptr;
+    }
+
+    template<typename Op, typename U, typename V>
+    static auto logicalOpHelper(const Tensor<U>& lhs, const Tensor<V>& rhs){
+         return buildFunctionWrapper<Op, bool>(lhs, rhs);
+    }
+
+    template<typename Op, typename U , typename V>
+    static auto binaryOpHelper(const Tensor<U>& lhs, const Tensor<V>& rhs){
+       return buildFunctionWrapper<Op, std::common_type_t<U, V>>(lhs, rhs);
+    }
+
+    template <typename Op, typename U, typename V, typename W>
+    static auto ternaryOpHelper(const Tensor<U>& a, const Tensor<V>& b, const Tensor<W>& c) {
+        return buildFunctionWrapper<Op, std::common_type_t<U, V, W>>(a, b, c);
+    }
+
+    template<typename Op, typename V>
+    static auto unaryOpHelper(const Tensor<V>& tensor) {
+        return buildFunctionWrapper<Op, V>(tensor);
+    }
+
+public:
     // Binary arithmetic/logical operators (single template each)
     template<typename U, typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
-    auto operator+(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::AddOp>(*this, rhs); }
+    auto operator+(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::AddOp, T, U>(*this, rhs); }
      
     template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
-    auto operator-(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::SubOp>(*this, rhs);}
-    
+    auto operator-(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::SubOp, T, U>(*this, rhs); }
+
     // Unified division operator: integer -> IntDivOp, floating -> reciprocal * mul
     template<typename U, typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
     auto operator/(const Tensor<U>& rhs) const {
         if constexpr (std::is_integral_v<U> && std::is_integral_v<T>) {
             return binaryOpHelper<mlir::tosa::IntDivOp>(*this, rhs);
         } else if constexpr (std::is_floating_point_v<U> && std::is_floating_point_v<T>) {
-            auto recip = rhs.template unaryOpHelper<mlir::tosa::ReciprocalOp>();
+            auto recip = unaryOpHelper<mlir::tosa::ReciprocalOp>(rhs);
             return (*this) * recip; // reuse MulOp path
         } else {
             static_assert(std::is_same_v<U, void>, "Mixed integral/floating division not supported");
@@ -400,15 +431,15 @@ public:
     template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
     auto operator*(const Tensor<U>& rhs) const { 
         Tensor<uint8_t> scaleTensor({1}); // scale/shift tensor for tosa.mul signature
-        return ternaryOpHelper<mlir::tosa::MulOp>(*this, rhs, scaleTensor);
+        return ternaryOpHelper<mlir::tosa::MulOp, T, U>(*this, rhs, scaleTensor);
     }
 
-    Tensor<T> operator+() const { return unaryOpHelper<mlir::tosa::AbsOp>(); }
-   // Tensor<T> operator-() const { return unaryOpHelper<mlir::tosa::NegOp>(); }
-    Tensor<T> operator~() const { return unaryOpHelper<mlir::tosa::BitwiseNotOp>(); }
-    Tensor<T> operator!() const { return unaryOpHelper<mlir::tosa::LogicalNotOp>(); }
-    
-    
+    Tensor<T> operator+() const { return unaryOpHelper<mlir::tosa::AbsOp, T>(*this); }
+   // Tensor<T> operator-() const { return unaryOpHelper<mlir::tosa::NegOp>(*this); }
+    Tensor<T> operator~() const { return unaryOpHelper<mlir::tosa::BitwiseNotOp, T>(*this); }
+    Tensor<T> operator!() const { return unaryOpHelper<mlir::tosa::LogicalNotOp, T>(*this); }
+
+
     template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<T> && std::is_integral_v<U>>>
     auto operator%(const Tensor<U>& rhs) const { 
         // Modulo: a % b = a - (a / b) * b  (integer arithmetic semantics)
@@ -417,32 +448,32 @@ public:
     }
         
     template<typename U,  typename = std::enable_if_t<std::is_integral_v<U> && std::is_integral_v<T> && std::is_unsigned_v<U> && std::is_unsigned_v<T>>>
-    auto operator&(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::BitwiseAndOp>(*this, rhs); }
+    auto operator&(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::BitwiseAndOp, T, U>(*this, rhs); }
     template<typename U,  typename = std::enable_if_t<std::is_integral_v<U> && std::is_integral_v<T> && std::is_unsigned_v<U> && std::is_unsigned_v<T>>>
-    auto operator|(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::BitwiseOrOp>(*this, rhs); }
+    auto operator|(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::BitwiseOrOp, T, U>(*this, rhs); }
     template<typename U,  typename = std::enable_if_t<std::is_integral_v<U> && std::is_integral_v<T> && std::is_unsigned_v<U> && std::is_unsigned_v<T>>>
-    auto operator^(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::BitwiseXorOp>(*this, rhs); }
+    auto operator^(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::BitwiseXorOp, T, U>(*this, rhs); }
 
     template<typename U,  typename = std::enable_if_t<std::is_integral_v<U> && std::is_integral_v<T> && std::is_unsigned_v<U> && std::is_unsigned_v<T>>>
-    auto operator<<(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::LogicalLeftShiftOp>(*this, rhs); }
+    auto operator<<(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::LogicalLeftShiftOp, T, U>(*this, rhs); }
     template<typename U,  typename = std::enable_if_t<std::is_integral_v<U> && std::is_integral_v<T> && std::is_unsigned_v<U> && std::is_unsigned_v<T>>>
-    auto operator>>(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::LogicalRightShiftOp>(*this, rhs); }
+    auto operator>>(const Tensor<U>& rhs) const { return binaryOpHelper<mlir::tosa::LogicalRightShiftOp, T, U>(*this, rhs); }
 
-   
 
-    template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
-    auto operator&&(const Tensor<U>& rhs) const { return logicalOpHelper<mlir::tosa::LogicalAndOp>(*this, rhs); }
-    template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
-    auto operator||(const Tensor<U>& rhs) const { return logicalOpHelper<mlir::tosa::LogicalOrOp>(*this, rhs); }
 
     template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
-    auto operator==(const Tensor<U>& rhs) const { return logicalOpHelper<mlir::tosa::EqualOp>(*this, rhs); }
+    auto operator&&(const Tensor<U>& rhs) const { return logicalOpHelper<mlir::tosa::LogicalAndOp, T, U>(*this, rhs); }
+    template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
+    auto operator||(const Tensor<U>& rhs) const { return logicalOpHelper<mlir::tosa::LogicalOrOp, T, U>(*this, rhs); }
+
+    template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
+    auto operator==(const Tensor<U>& rhs) const { return logicalOpHelper<mlir::tosa::EqualOp, T, U>(*this, rhs); }
     template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
     auto operator!=(const Tensor<U>& rhs) const { return !(*this == rhs); }
     template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
-    auto operator>(const Tensor<U>& rhs) const { return logicalOpHelper<mlir::tosa::GreaterOp>(*this, rhs); }
+    auto operator>(const Tensor<U>& rhs) const { return logicalOpHelper<mlir::tosa::GreaterOp, T, U>(*this, rhs); }
     template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
-    auto operator>=(const Tensor<U>& rhs) const { return logicalOpHelper<mlir::tosa::GreaterEqualOp>(*this, rhs); }
+    auto operator>=(const Tensor<U>& rhs) const { return logicalOpHelper<mlir::tosa::GreaterEqualOp, T, U>(*this, rhs); }
 
     template<typename U,  typename = std::enable_if_t<std::is_arithmetic_v<U> && std::is_arithmetic_v<T>>>
      auto operator<(const Tensor<U>& rhs) const { return !(*this >= rhs); }
@@ -557,4 +588,3 @@ public:
 private:
 
 };
-

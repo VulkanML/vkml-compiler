@@ -39,12 +39,9 @@ int main() {
     auto result2 = result -tensor_0;
 
     
-    std::cout << "Tensor 0: " << tensor_0 << std::endl;
-    std::cout << "Tensor 1: " << tensor_1 << std::endl;
-    // std::cout << "Result Tensor: " << result << std::endl;
-    // std::cout << "Result2 Tensor: " << result2 << std::endl;
-    
-    std::cout << "MLIR Module:\n" ; vkml::dump();
+    vkml::Compiler::getInstance()->runTosaToGPU();
+    std::cout << "MLIR Module:\n" ;
+    vkml::dump();
 
     return 0;
  }
